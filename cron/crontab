@@ -1,2 +1,0 @@
-# Exécuter le script toutes les minutes
-* * * * * root /usr/local/bin/refresh_prices_cron.sh >> /var/log/cron.log 2>&1

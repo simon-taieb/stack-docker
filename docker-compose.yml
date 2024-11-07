@@ -1,157 +1,59 @@
-version: "3.8"
-
 services:
   traefik:
     image: traefik:v2.9
-    container_name: traefik
     command:
-      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
-      - "--certificatesresolvers.myresolver.acme.email=simon@godotetfils.com"
-      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      - "--api.insecure=true" # À désactiver en production
     ports:
       - "80:80"
-      - "443:443"
-      - "8080:8080"
+      - "8080:8080" # Tableau de bord Traefik en dev
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - prestashop_network
+      - web
+
+  wordpress:
+    image: wordpress:latest
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: ${MYSQL_USER}
+      WORDPRESS_DB_PASSWORD: ${MYSQL_PASSWORD}
+      WORDPRESS_DB_NAME: ${MYSQL_DATABASE}
+    volumes:
+      - ./wordpress:/var/www/html
+    depends_on:
+      - db
+    networks:
+      - web
 
   db:
-    build:
-      context: ./db
-      dockerfile: Dockerfile
-    container_name: prestashop_db
-    restart: always
+    image: mariadb:10.5
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
-      - ./backups:/backups
     networks:
-      - prestashop_network
-
-  php:
-    build:
-      context: ./php
-      dockerfile: Dockerfile
-    container_name: prestashop_php
-    restart: always
-    volumes:
-      - ./prestashop:/var/www/html
-      - ./php/php.ini:/usr/local/etc/php/php.ini
-    networks:
-      - prestashop_network
-
-  prestashop:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    container_name: prestashop
-    restart: always
-    volumes:
-      - ./prestashop:/var/www/html
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.prestashop.rule: "Host(`${DOMAIN_NAME}`)"
-      traefik.http.services.prestashop.loadbalancer.server.port: "80"
-      traefik.http.routers.prestashop.entrypoints: "websecure"
-      traefik.http.routers.prestashop.tls.certresolver: "myresolver"
-    depends_on:
-      - php
-    environment:
-      - SERVER_NAME=${DOMAIN_NAME}
-    networks:
-      - prestashop_network
+      - web
 
   phpmyadmin:
-    image: phpmyadmin/phpmyadmin
-    container_name: prestashop_phpmyadmin
-    restart: always
+    image: phpmyadmin/phpmyadmin:latest
     environment:
       PMA_HOST: db
-      PMA_PORT: 3306
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.phpmyadmin.rule: "Host(`${PMA_DOMAIN_NAME}`)"
-      traefik.http.routers.phpmyadmin.entrypoints: "websecure"
-      traefik.http.routers.phpmyadmin.tls.certresolver: "myresolver"
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
     depends_on:
       - db
     networks:
-      - prestashop_network
-
-  backup:
-    build:
-      context: ./backups
-      dockerfile: Dockerfile
-    container_name: prestashop_backup
-    restart: always
-    environment:
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      DB_HOST: db
-    volumes:
-      - ./backups:/backups
-    depends_on:
-      - db
-    networks:
-      - prestashop_network
-    command: ["cron", "-f"]
-    labels:
-      traefik.enable: "false"
-
-  cron:
-    build:
-      context: ./cron
-      dockerfile: Dockerfile
-    container_name: prestashop_cron
-    restart: always
-    environment:
-      NGINX_HOST: prestashop
-    volumes:
-      - ./cron:/cron
-    depends_on:
-      - prestashop
-    networks:
-      - prestashop_network
-    command: ["cron", "-f"]
-    labels:
-      traefik.enable: "false"
-
-  pre_deploy:
-    image: mysql:5.7
-    platform: linux/amd64
-    depends_on:
-      - db
-    environment:
-      ENVIRONMENT: ${ENVIRONMENT}
-      DOMAIN_NAME: ${DOMAIN_NAME}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      BACKUP_SOURCE_HOST: db
-    volumes:
-      - ./backups:/backup
-      - ./scripts/pre_deploy.sh:/pre_deploy.sh
-    command: ["bash", "/pre_deploy.sh"]
-    networks:
-      - prestashop_network
+      - web
 
 volumes:
   db_data:
-  letsencrypt:
 
 networks:
-  prestashop_network:
+  web:
     driver: bridge
